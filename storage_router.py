@@ -12,10 +12,12 @@ MAX_SEGMENTS = 4
 def get_db_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 
+    # This will soon not be needed. Currently, we're looking at 300 writes per minute, which is well within the limits of WAL journal mode
+    # The plan is to do away with saving every second. memory usage/performance of automerge could end up being the bottleneck, not SQLite
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
     conn.execute("PRAGMA temp_store=MEMORY;")
-    conn.execute("PRAGMA mmap_size=3000000000;")
+    conn.execute("PRAGMA mmap_size=300000000;")  # 300MB
     conn.execute("PRAGMA busy_timeout=5000;")
 
     conn.execute("""
@@ -121,7 +123,6 @@ def remove_chunk(key: List[str] = Query(default=[])):
 
 @storage_router.get("/storage/range")
 def load_range(key: List[str] = Query(default=[])):
-    print("PREFIX", key)
     if not key or len(key) > MAX_SEGMENTS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -140,7 +141,7 @@ def load_range(key: List[str] = Query(default=[])):
 
     for row in rows:
         # Reconstruct the string key, skipping our padding empty segments
-        original_key = [row[i] for i in range(MAX_SEGMENTS) if row[i] != ""]  # type: ignore
+        original_key = [row[i] for i in range(MAX_SEGMENTS) if row[i] != ""]
         # `row` is (segment0, segment1, segment2, segment3, data)
         data = row[-1]
         encoded_data = base64.b64encode(data).decode("utf-8")
